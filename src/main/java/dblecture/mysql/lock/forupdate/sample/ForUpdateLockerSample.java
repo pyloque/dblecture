@@ -50,7 +50,7 @@ public class ForUpdateLockerSample {
 	}
 
 	private static void testConcurrent(ForUpdateLocker locker) {
-		ExecutorService executor = Executors.newFixedThreadPool(10);
+		ExecutorService executor = Executors.newFixedThreadPool(100);
 		AtomicInteger runs = new AtomicInteger(0);
 		for (int i = 0; i < 1000; i++) {
 			String id = "id" + i;

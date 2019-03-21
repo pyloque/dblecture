@@ -4,6 +4,8 @@ import java.sql.SQLIntegrityConstraintViolationException;
 
 import org.apache.ibatis.exceptions.PersistenceException;
 
+import com.mysql.cj.jdbc.exceptions.MySQLTransactionRollbackException;
+
 import dblecture.mysql.Holder;
 import dblecture.mysql.MySQLStore;
 
@@ -31,7 +33,7 @@ public class InsertLocker {
 		Holder<Locker> holder = new Holder<>();
 		this.mysql.executeWithMapper(LockerMapper.class, mapper -> {
 			// 重试次数
-			int maxTimes = 2;
+			int maxTimes = 5;
 			while (maxTimes-- > 0) {
 				long expireTime = System.currentTimeMillis() + seconds * 1000;
 				Locker locker = new Locker(id, expireTime);
@@ -43,6 +45,10 @@ public class InsertLocker {
 					// 其它非主键冲突异常，直接往上传递
 					if (!(e.getCause() instanceof SQLIntegrityConstraintViolationException)) {
 						throw e;
+					}
+					// deadlock
+					if (e.getCause() instanceof MySQLTransactionRollbackException) {
+						return;
 					}
 				}
 				// 加锁失败，瞄一下当前的锁是否有效
@@ -70,11 +76,19 @@ public class InsertLocker {
 	public void unlock(Locker locker) {
 		// 条件删除锁
 		this.mysql.executeWithMapper(LockerMapper.class, mapper -> {
-			mapper.deleteLocker(locker);
+			try {
+				mapper.deleteLocker(locker);
+			} catch (PersistenceException e) {
+				// deadlock
+				if (e.getCause() instanceof MySQLTransactionRollbackException) {
+					return;
+				}
+				throw e;
+			}
 		});
 	}
 
-	public boolean  with(String id, int seconds, Runnable op) {
+	public boolean with(String id, int seconds, Runnable op) {
 		Locker locker = this.lock(id, seconds);
 		if (locker == null) {
 			return false;
